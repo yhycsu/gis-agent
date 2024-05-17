@@ -57,13 +57,17 @@ def gcj02_to_wgs84_one(lng, lat):
     return lng * 2 - mglng, lat * 2 - mglat
 
 
-def download_poi(keywords='', types='', region=''):
-    url = f'''https://restapi.amap.com/v5/place/text?keywords={keywords}&types={types}
-        &region={region}&key=016ad9192e40fc6d1054a83a21400429'''
-    res = requests.get(url)
-    json_data = json.loads(res.text)
-    pois = json_data['pois']
-    for poi in pois:
+def download_poi(keywords='', region='长沙市'):
+    results = []
+    for i in range(1, 21):
+        url = f'''https://restapi.amap.com/v5/place/text?keywords={keywords}
+            &region={region}&key=016ad9192e40fc6d1054a83a21400429&page_num={i}'''
+        res = requests.get(url)
+        json_data = json.loads(res.text)
+        pois = json_data['pois']
+        results += pois
+
+    for poi in results:
         location = poi['location'].split(',')
         lon, lat = gcj02_to_wgs84_one(eval(location[0]), eval(location[1]))
         poi['geometry'] = geometry.Point(lon, lat)
@@ -76,11 +80,11 @@ def download_poi(keywords='', types='', region=''):
 
 
 if __name__ == "__main__":
-    keywords = "中南大学校本部"
+    keywords = "商场"
     region = "长沙市"
     # types = "110100"
     download_poi(keywords=keywords, region=region)
     # download_poi('', types, region)
 
-    data = gpd.read_file('E:\GISAgent\shapefiles\poi\中南大学校本部_长沙市\中南大学校本部_长沙市.shp', encoding='utf-8')
+    data = gpd.read_file(f'/home/yuan/gis-agent/shapefiles/poi/{keywords}_{region}/{keywords}_{region}.shp', encoding='utf-8')
     print(data.head())

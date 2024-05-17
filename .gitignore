@@ -9,6 +9,11 @@ flagged
 
 # C extensions
 *.so
+*.shp
+*.shx
+*.cpg
+*.dbf
+*.prj
 
 # Distribution / packaging
 .Python
