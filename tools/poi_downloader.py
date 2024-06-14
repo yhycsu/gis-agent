@@ -74,13 +74,14 @@ def download_poi(keywords='', region='长沙市'):
 
     gdf = gpd.GeoDataFrame(pois)
     if not os.path.exists(os.path.join(f'../shapefiles/poi', f'{keywords}_{region}')):
+        
         os.mkdir(os.path.join(f'../shapefiles/poi', f'{keywords}_{region}'))
 
     gdf.to_file(os.path.join(f'../shapefiles/poi/{keywords}_{region}', f'{keywords}_{region}.shp'), encoding='utf-8')
 
 
 if __name__ == "__main__":
-    keywords = "商场"
+    keywords = "subway station"
     region = "长沙市"
     # types = "110100"
     download_poi(keywords=keywords, region=region)

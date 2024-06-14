@@ -148,3 +148,12 @@ cython_debug/
 
 shapefiles/results/
 shapefiles/test/
+/images/compute_difference.png
+/images/create_buffer.png
+/images/filter.png
+/images/get_path.png
+/images/get_poi.png
+/images/read_shp_file.png
+/shapefiles/poi/
+/shapefiles/poi/中南大学校本部_长沙市/
+/shapefiles/poi/_长沙市/

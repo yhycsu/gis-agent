@@ -2,22 +2,19 @@
 为要素创建缓冲区的示例，
 需要同时上传shp和shx文件
 """
-import json
 import gradio as gr
-import geopandas as gpd
-import tempfile
 import shutil
-import os
-import matplotlib.pyplot as plt
-import folium
+import time
 
-#from toolbox import *
+from toolbox import *
 from llm import *
-from toolbox import calculate_minimum_distance_with_other_pois,calculate_distance
+from utils import *
 
-result_dir = '/home/yuan/gis-agent/shapefiles/results'
-file_dir = '/home/yuan/gis-agent/files'
-
+# result_dir = '/home/a6000/yhy/gis-agent/shapefiles/results'
+# file_dir = '/home/a6000/yhy/gis-agent/files'
+result_dir = 'shapefiles/results'
+file_dir = 'files'
+tiles= 'https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7'
 
 def example1():
     gdf1 = gpd.read_file('shapefiles/poi/日料_长沙市/日料_长沙市.shp')
@@ -76,103 +73,127 @@ def move_files(input_files):
     return moved_files
 
 
+def choose_example(example):
+    return EXAMPLE_QUERIES[example]
+
+
 def chat(input_files, input_text):
-    input_text += f' the file directory is {file_dir}'
-    response = get_llm_output(input_text)
-    call, thought = response['call'], response['thought']
+    # clear function call graph
+    clear_graph()
+
+    # get llm output
     try:
-        result = eval(call)
+        input_text += f' the file directory is {file_dir}'
+        now = time.time()
+        response = get_llm_output(input_text)
+        print('function call time: ', time.time() - now)
+        
+        call, thought = response['call'], response['thought']
     except Exception as e:
-        return input_files, call, thought, None, 'Error, error message: ' + str(e)
-    result_path = os.path.join(file_dir, 'result.shp')
-    result.to_file(result_path)
-    input_files.append(result_path)
-    return input_files, call, thought, None, 'Done! result is saved at ' + result_path
+        map = gr.HTML(elem_id="map", value=folium.Map(location=[28.2278, 112.9389], tiles=tiles, attr='高德-常规图', zoom_start=10)._repr_html_())
+        return input_files, None, None, map_html, 'Error, error message: ' + str(e), None
 
-    # # execution chain
-    # output = {}
-    # for tool_data in response["tools"]:
-    #     func_name = tool_data["tool"]
-    #     func_input = tool_data["tool_input"]
-    #     func_input = update_input(func_input, output)
-    #     # 获取全局命名空间中的函数对象
-    #     g = globals()
-    #     func = globals().get(func_name)
-    #
-    #     if func is not None and callable(func):
-    #         if func_name == 'read_shp_file':
-    #             output = func(temp_dir, **func_input)
-    #             original_gdf = output['gdf']
-    #         else:
-    #             output = func(**func_input)
-    #     else:
-    #         print(f"Unknown function: {func_name}")
-    #
-    # gdf = output['gdf']
-    # save_path = os.path.join(result_dir, 'buffer.shp')
-    # gdf.to_file(save_path)
+    #  如果生成的函数执行出错
+    try:
+        now = time.time()
+        result = eval(call)
+        print('function execute time: ', time.time() - now)
+        if isinstance(result, tuple):
+            result = result[0]
+        result_path = os.path.join(file_dir, 'result.shp')
+        result.to_file(result_path, encoding='utf-8')
 
-    # 绘制Shapefile和缓冲区
-    # fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    # original_gdf.plot(ax=axes[0])
-    # gdf.plot(ax=axes[1])
-    # axes[0].set_title('Original Shapefile')
-    # axes[1].set_title('Result Shapefile')
-    # plt.tight_layout()
-    #
-    # # 将地图保存为图片
-    # combined_image_path = os.path.join(result_dir, "combined_map_image.png")
-    # plt.savefig(combined_image_path, bbox_inches='tight', pad_inches=0)
-    # plt.close(fig)
-    #
-    # image_output.visible = True
-    # return combined_image_path, f'任务已完成！结果文件已保存到{save_path}'
+        if input_files is None:
+            input_files = []
+        input_files.append(result_path)
+        map_html = display_in_map(result)
+        # function_call_graph = graph_to_html()
+        function_call_graph = graph_to_image()
+        return input_files, call, thought, map_html, 'Done! result is saved at ' + result_path, function_call_graph
+        
+    except Exception as e:
+        map = gr.HTML(elem_id="map", value=folium.Map(location=[28.2278, 112.9389], tiles=tiles, attr='高德-常规图', zoom_start=10)._repr_html_())
+        return input_files, call, thought, map, 'Error, error message: ' + str(e), None  
 
 
 title = """<h1 align="center">GIS Agent</h1>"""
 description = 'Welcome to use GIS Agent!'
 
-with gr.Blocks() as demo:
+EXAMPLE_QUERIES = {
+    "Geospatial Query": 'I want to go to "长沙世界之窗", list all the subway stations within 1 kilometer in the path to there',
+    "Convex Hull": 'compute the convex hull of all the points from "a.shp" that is in the area of "b.shp"',
+    "Regions Intersection": 'calculate the area of the intersection of "a.shp" and the buffer of "b.shp", buffer size is 0.0001',
+    "Search an Area": "Get all the subways in the area of 'b.shp'",
+}
+
+css = """
+#files {
+    min-height:200px;
+}
+#func_call {
+    min_height:20px;
+}
+"""
+
+theme = gr.themes.Soft(
+    primary_hue=gr.themes.colors.blue,
+    secondary_hue=gr.themes.colors.blue,
+)
+
+with gr.Blocks(theme=theme, css=css) as demo:
     gr.Markdown(title)
     gr.Markdown(description)
 
     with gr.Row():
+        with gr.Column(elem_id='container', variant='compact'):
+            # with gr.Row():
+            #     gr.Label("Examples")
+            #     examples = [
+            #         gr.Button(query_name) for query_name in EXAMPLE_QUERIES
+            #     ]
+            examples = gr.Dropdown(
+                list(EXAMPLE_QUERIES.keys()), label="Examples", info="Choose one example to start"
+            )
+            shp_input = gr.Files(elem_id='files', label='files', scale=2, elem_classes='files')
+            
+            
         with gr.Column():
-            shp_input = gr.Files(label='input files')
-            text_input = gr.Textbox(label='input text', interactive=True)
-            function_call = gr.Textbox(label='function calling', interactive=False)
-            task_planning = gr.Textbox(label='Task Planning', interactive=False)
-
-            with gr.Row():
-                submit_button = gr.Button("Submit", variant='primary', size='sm', scale=0)
-                example_button = gr.Button("Example1", variant='primary', size='sm', scale=0)
-
-        with gr.Column():
-            image_output = gr.Image(label='output image')
-            map = gr.HTML(folium.Map(location=[28.2278, 112.9389], zoom_start=10)._repr_html_())
-            text_output = gr.Textbox(label='output text', interactive=True)
-
-    with gr.Row():
-        gr.Examples(examples=[
-            ["想找个好吃的日料店，最好不要太贵，不要排太久的队，附近有电影院和地铁站。"],
-        ], inputs=[text_input], fn=example1,
-            outputs=[map, text_output])
+            map = gr.HTML(elem_id="map", value=folium.Map(location=[28.2278, 112.9389], tiles=tiles, attr='高德-常规图', zoom_start=10)._repr_html_())
+    text_input = gr.Textbox(label='input text', interactive=True, lines=3, scale=2)
+    submit_button = gr.Button("Submit", variant='primary', scale=1)
+    function_call = gr.Code(elem_id='func_call', language='python', label='function calling', interactive=False, lines=1)
+    task_planning = gr.Textbox(label='Task Planning', interactive=False)
+    # function_call_graph = gr.HTML(label='function call graph')
+    function_call_graph = gr.Image(label='function call graph')
+    text_output = gr.Textbox(label='output text', interactive=True)
 
     text_input.submit(
         chat,
         inputs=[shp_input, text_input],
-        outputs=[shp_input, function_call, task_planning, image_output, text_output],
+        outputs=[shp_input, function_call, task_planning, map, text_output, function_call_graph],
     )
 
     submit_button.click(
         chat,
         inputs=[shp_input, text_input],
-        outputs=[shp_input, function_call, task_planning, image_output, text_output],
+        outputs=[shp_input, function_call, task_planning, map, text_output, function_call_graph],
     )
 
-    example_button.click(example1, inputs=None, outputs=[map, text_output, task_planning])
-
     shp_input.upload(move_files, inputs=[shp_input], outputs=[shp_input])
+
+    # for i, button in enumerate(examples):
+    #     button.click(
+    #         fn=EXAMPLE_QUERIES.get,
+    #         inputs=button,
+    #         outputs=text_input,
+    #         api_name=f"button_click_{i}",
+    #     )
+
+    examples.select(
+        fn=choose_example,
+        inputs=[examples],
+        outputs=text_input,
+    )
 
 
 demo.launch(share=True)
