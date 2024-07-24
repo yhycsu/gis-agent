@@ -146,3 +146,15 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+files/*
+!files/.gitkeep
+
+shapefiles/examples
+!shapefiles/examples/.gitkeep
+shapefiles/poi
+!shapefiles/poi/.gitkeep
+shapefiles/results
+!shapefiles/results/.gitkeep
+shapefiles/road
+!shapefiles/road/.gitkeep
+
