@@ -1,0 +1,12 @@
+FROM nexusraven:13b
+
+# Set the model temperature (the smaller the value, the more rigorous the answer, the larger the value, the more divergent the answer)
+PARAMETER temperature 0
+
+# Set context token size
+PARAMETER num_ctx 4096
+
+# Set other related parameters to optimize performance and answer quality
+PARAMETER repeat_penalty 1.1
+PARAMETER top_k 40
+PARAMETER top_p 0.9

@@ -1,31 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-包括GIS Agent所需要的工具
-
-输入要求：
-    为一个或多个GeoDataFrame，外加其它参数
-
-输出要求：
-    为一个或多个GeoDataFrame，外加其它结果
+includes tools for GIS Agent to call
 """
-import os
-from typing import List, get_type_hints
+from typing import List
 
-import geopandas as gpd
-import requests
+import pandas as pd
+from jinja2 import Template
+from pyproj import CRS
+from scipy.spatial import KDTree
 from shapely import Point, LineString
 
-from tools.poi_downloader import download_poi
 from utils import *
 
 
-import pandas as pd
-from pyproj import CRS
-from scipy.spatial import KDTree
-from jinja2 import Template
-
-
+# api to download data from Gaode map
 api_key = '016ad9192e40fc6d1054a83a21400429'
+# place to store downloaded poi data
 poi_dir = 'shapefiles/poi'
 
 
@@ -46,7 +36,6 @@ def read_shp_file(file_dir: str, file_name: str):
     return gdf
 
 
-# 地理处理工具
 @call_graph
 def create_buffer(gdf: gpd.GeoDataFrame, buffer_size: float):
     """
@@ -77,10 +66,10 @@ def compute_difference(gdf1: gpd.GeoDataFrame, gdf2: gpd.GeoDataFrame) -> gpd.Ge
     - gpd.GeoDataFrame: the difference between gdf1 and gdf2
     """
 
-    # 计算两个 GeoDataFrame 之间的差集
+    # Calculate the difference between two GeoDataFrames
     difference = gdf1.geometry.difference(gdf2.unary_union)
 
-    # 创建新的 GeoDataFrame
+    #Create a new GeoDataFrame
     difference_gdf = gpd.GeoDataFrame(geometry=difference)
 
     return difference_gdf
@@ -119,20 +108,16 @@ def get_path(origin: tuple, destination: tuple):
         destination = tuple(destination)
     origin = f'{origin[0]},{origin[1]}'
     destination = f'{destination[0]},{destination[1]}'
-    # 构造请求 URL
+    # Construct request URL
     url = 'https://restapi.amap.com/v3/direction/driving?key={}&origin={}&destination={}'.format(api_key, origin,
                                                                                                  destination)
-    # 发送 HTTP 请求
+    # send HTTP request
     response = requests.get(url)
 
-    # 解析 JSON 数据
+    # parse JSON data
     result = response.json()
     if result['status'] == '1':
-        # 获取路径距离和时间
-        distance = result['route']['paths'][0]['distance']
-        duration = result['route']['paths'][0]['duration']
-
-        # 获取路线节点
+        # Get route nodes
         steps = result['route']['paths'][0]['steps']
         points = []
         for step in steps:
@@ -160,9 +145,12 @@ def get_poi(keyword):
     Returns:
     - gpd.GeoDataFrame: the locations that contains the specific keyword
     """
-    if not os.path.exists(os.path.join(poi_dir, f'{keyword}_长沙市')):
-        download_poi(keyword)
-    return read_shp_file(poi_dir, f'{keyword}_长沙市/{keyword}_长沙市.shp')
+    city = get_location_from_ip(get_public_ip())
+    if not city:
+        raise ValueError('Sorry, we currently only support cities in China because of some restrictions.')
+    if not os.path.exists(os.path.join(poi_dir, f'{keyword}_{city}')):
+        download_poi(keyword, city)
+    return read_shp_file(poi_dir, f'{keyword}_{city}/{keyword}_{city}.shp')
 
 
 @call_graph
@@ -180,7 +168,7 @@ def clip_shp(input_gdf: gpd.GeoDataFrame, clip_area: gpd.GeoDataFrame) -> gpd.Ge
 
     clip_extent = clip_area.geometry.unary_union
 
-    # 进行裁剪操作
+    # Perform cropping operation
     clipped = input_gdf.copy()
     clipped['geometry'] = input_gdf.intersection(clip_extent)
 
@@ -200,7 +188,7 @@ def compute_convex_hull(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     convex_hull = gdf.unary_union.convex_hull
 
-    # 将凸包几何保存到一个新的GeoDataFrame
+    # Save the convex hull geometry to a new GeoDataFrame
     convex_hull_gdf = gpd.GeoDataFrame(geometry=[convex_hull])
     return convex_hull_gdf
 
@@ -224,21 +212,21 @@ def union_features(input_gdf1: gpd.GeoDataFrame, input_gdf2: gpd.GeoDataFrame):
 @call_graph
 def dissolve_features(input_gdf1: gpd.GeoDataFrame, input_gdf2: gpd.GeoDataFrame, att):
     """
-    融合两个 GeoDataFrame。
+    Fusion of two GeoDataFrames.
 
-    参数:
-    - input_gdf1 (GeoDataFrame): 第一个 GeoDataFrame。
-    - input_gdf2 (GeoDataFrame): 第二个 GeoDataFrame。
-    - att (str): 用于融合的属性列。
+    parameter:
+    - input_gdf1 (GeoDataFrame): The first GeoDataFrame.
+    - input_gdf2 (GeoDataFrame): Second GeoDataFrame.
+    - att (str): attribute column used for fusion.
 
-    返回:
-        dissolved_union (GeoDataFrame): 融合后的 GeoDataFrame。
+    return:
+        dissolved_union (GeoDataFrame): Dissolved GeoDataFrame.
     """
 
-    # 计算几何并集
+    # Compute geometric union
     union = gpd.overlay(input_gdf1, input_gdf2, how='union')
 
-    # Dissolve操作
+    # Dissolve operation
     dissolved_union = union.dissolve(by=att)
     return dissolved_union
 
@@ -256,7 +244,7 @@ def intersection_features(input_gdf1: gpd.GeoDataFrame, input_gdf2: gpd.GeoDataF
     - gpd.GeoDataFrame: the intersection of two GeoDataFrames
     """
 
-    # 计算交集
+    # calculate intersection
     intersection = gpd.overlay(input_gdf1, input_gdf2, how='intersection')
     return intersection
 
@@ -264,14 +252,14 @@ def intersection_features(input_gdf1: gpd.GeoDataFrame, input_gdf2: gpd.GeoDataF
 @call_graph
 def symmetrical_difference_features(input_gdf1: gpd.GeoDataFrame, input_gdf2: gpd.GeoDataFrame):
     """
-    两个 GeoDataFrame交集取反。
+    The intersection of two GeoDataFrames is negated.
 
-    参数:
-        input_gdf1 (GeoDataFrame): 第一个 GeoDataFrame。
-        input_gdf2 (GeoDataFrame): 第二个 GeoDataFrame。
+    parameter:
+        input_gdf1 (GeoDataFrame): The first GeoDataFrame.
+        input_gdf2 (GeoDataFrame): The second GeoDataFrame.
 
-    返回:
-        merged_gdf (GeoDataFrame): 融合后的 GeoDataFrame。
+    return:
+        merged_gdf (GeoDataFrame): Merged GeoDataFrame.
     """
     symmetric_difference = gpd.overlay(input_gdf1, input_gdf2, how='symmetric_difference')
     return symmetric_difference
@@ -279,21 +267,17 @@ def symmetrical_difference_features(input_gdf1: gpd.GeoDataFrame, input_gdf2: gp
 
 @call_graph
 def calculate_distance(gdf1: gpd.GeoDataFrame, gdf2: gpd.GeoDataFrame):
-    # 遍历第一个shapefile中的每个点
+    # Traverse each point in the first shapefile
     results = []
     for index1, row1 in gdf1.iterrows():
         point1 = row1.geometry
-
         result = []
-        # 遍历第二个shapefile中的每个点
+        # Traverse each point in the second shapefile
         for index2, row2 in gdf2.iterrows():
             point2 = row2.geometry
-
-            # 计算两个点之间的距离
+            # Calculate the distance between two points
             distance = point1.distance(point2)
-
             result.append(distance)
-
         results.append(result)
     return results
 
@@ -328,133 +312,111 @@ def calculate_minimum_distance_with_other_pois(gdf: gpd.GeoDataFrame, other_gdfs
     return gdf.iloc[target], others
 
 
-#统计多边形内点的数量
 @call_graph
 def count_points_in_polygons(point_layer, polygon_layer, weight_field=None, unique_field=None):
     """
-    统计点在多边形中的数量，生成包含点数的新多边形图层。
+    Count the number of points in a polygon and generate a new polygon layer containing the number of points.
 
-    参数：
-    point_layer (GeoDataFrame): 点图层。
-    polygon_layer (GeoDataFrame): 多边形图层。
-    weight_field (str, 可选): 点图层中的权重字段。
-    unique_field (str, 可选): 点图层中的唯一类字段。
+    parameter:
+    point_layer (GeoDataFrame): point layer.
+    polygon_layer (GeoDataFrame): Polygon layer.
+    weight_field (str, optional): The weight field in the point layer.
+    unique_field (str, optional): The unique field in the point layer.
 
-    返回：
-    GeoDataFrame: 包含点数的新多边形图层。
+    return:
+    GeoDataFrame: New polygon layer containing points.
     """
-
-    # 复制多边形图层以生成输出图层
+    # Copy the polygon layer to generate the output layer
     result_polygons = polygon_layer.copy()
 
-    # 初始化一个新的字段用于存储点数
+    # Initialize a new field to store points
     result_polygons['point_count'] = 0
 
-    # 检查是否设置了权重字段和唯一类字段
+    # Check whether the weight field and unique class field are set
     if weight_field and unique_field:
-        print("权重字段优先，唯一类字段将被忽略。")
+        print("Weight fields take precedence, unique class fields will be ignored.")
         unique_field = None
 
-    # 遍历每个多边形
+    # Iterate through each polygon
     for idx, polygon in result_polygons.iterrows():
-        # 获取当前多边形的几何信息
+        # Get the geometric information of the current polygon
         poly_geom = polygon.geometry
 
-        # 查找在当前多边形内的所有点
+        # Find all points within the current polygon
         points_within_poly = point_layer[point_layer.within(poly_geom)]
 
         if weight_field:
-            # 如果设置了权重字段，计算权重字段之和
+            # If the weight field is set, calculate the sum of the weight fields
             point_count = points_within_poly[weight_field].sum()
         elif unique_field:
-            # 如果设置了唯一类字段，对点进行分类并只计数唯一类
+            # If the unique class field is set, classify points and count only unique classes
             point_count = points_within_poly[unique_field].nunique()
         else:
-            # 否则，直接计数点的数量
+            # Otherwise, count the number of points directly
             point_count = len(points_within_poly)
 
-        # 更新多边形的点数
+        # Update the number of points of the polygon
         result_polygons.at[idx, 'point_count'] = point_count
 
     return result_polygons
 
 
-# 示例用法
-# point_layer = gpd.read_file('path_to_points.shp')
-# polygon_layer = gpd.read_file('path_to_polygons.shp')
-# result = count_points_in_polygons(point_layer, polygon_layer, weight_field='weight', unique_field=None)
-# result.to_file('path_to_result.shp')
-
-
-#线相交
-
-
 @call_graph
 def create_intersection_points(input_lines, intersect_lines):
     """
-    创建“相交图层”中的线与“输入图层”中的线相交处的点要素。
+    Creates point features where lines from the Intersect Layer intersect lines from the Input Layer.
 
-    参数：
-    input_lines (GeoDataFrame): 输入图层中的线。
-    intersect_lines (GeoDataFrame): 相交图层中的线。
+    parameter:
+    input_lines (GeoDataFrame): Lines in the input layer.
+    intersect_lines (GeoDataFrame): Intersect lines in layers.
 
-    返回：
-    GeoDataFrame: 包含相交点的点图层。
+    return:
+    GeoDataFrame: Point layer containing intersection points.
     """
 
-    # 初始化一个列表来存储相交点
+    # Initialize a list to store intersection points
     intersection_points = []
 
-    # 遍历每条输入线
+    # Traverse each input line
     for idx1, line1 in input_lines.iterrows():
-        # 遍历每条相交线
+        # Traverse each intersecting line
         for idx2, line2 in intersect_lines.iterrows():
-            # 查找线之间的交集
+            # Find intersections between lines
             intersection = line1.geometry.intersection(line2.geometry)
 
-            # 如果交集是点，将其添加到列表中
+            # If the intersection is a point, add it to the list
             if intersection.is_empty:
                 continue
 
             if intersection.geom_type == 'Point':
                 intersection_points.append(intersection)
 
-            # 如果交集是多个点（MultiPoint），则将每个点添加到列表中
+            # If the intersection is multiple points (MultiPoint), add each point to the list
             elif intersection.geom_type == 'MultiPoint':
                 for point in intersection:
                     intersection_points.append(point)
 
-    # 创建包含相交点的GeoDataFrame
+    #Create a GeoDataFrame containing intersection points
     intersection_points_gdf = gpd.GeoDataFrame(geometry=intersection_points, crs=input_lines.crs)
 
     return intersection_points_gdf
 
 
-# 示例用法
-# input_lines = gpd.read_file('path_to_input_lines.shp')
-# intersect_lines = gpd.read_file('path_to_intersect_lines.shp')
-# result = create_intersection_points(input_lines, intersect_lines)
-# result.to_file('path_to_result.shp')
-
-
-#平均坐标
-
-
 @call_graph
 def generate_centroids(input_layer, weight_field=None, unique_id_field=None):
     """
-    生成包含输入图层中几何图形质心的点图层，可以指定权重字段和唯一ID字段。
+    Generates a point layer containing the centroids of the geometry in the input layer. You can specify a weight field and a unique ID field.
 
-    参数：
-    input_layer (GeoDataFrame): 输入图层。
-    weight_field (str, 可选): 计算质心时各要素的权重字段。
-    unique_id_field (str, 可选): 用于分组的唯一ID字段。
+    parameter:
+    input_layer (GeoDataFrame): input layer.
+    weight_field (str, optional): The weight field of each feature when calculating the centroid.
+    unique_id_field (str, optional): Unique ID field used for grouping.
 
-    返回：
-    GeoDataFrame: 包含质心点的点图层。
+    return:
+    GeoDataFrame: Point layer containing centroid points.
     """
 
-    # 如果指定了唯一ID字段，根据该字段进行分组
+    # If a unique ID field is specified, group according to this field
     if unique_id_field:
         grouped = input_layer.groupby(unique_id_field)
     else:
@@ -464,20 +426,20 @@ def generate_centroids(input_layer, weight_field=None, unique_id_field=None):
 
     for group_name, group in grouped:
         if weight_field:
-            # 使用加权质心计算
+            # Use weighted centroid calculation
             weighted_x = sum(group.geometry.centroid.x * group[weight_field]) / group[weight_field].sum()
             weighted_y = sum(group.geometry.centroid.y * group[weight_field]) / group[weight_field].sum()
             centroid = Point(weighted_x, weighted_y)
         else:
-            # 使用普通质心计算
+            # Use normal centroid calculation
             centroid = group.geometry.centroid.unary_union.centroid
 
-        # 构建质心的属性字典
+        # Construct the attribute dictionary of the centroid
         properties = {}
         if unique_id_field:
             properties[unique_id_field] = group_name
 
-        # 创建一个包含质心的GeoSeries
+        # Create a GeoSeries containing centroids
         centroid_geo = gpd.GeoSeries([centroid], crs=input_layer.crs)
         centroid_geo = centroid_geo.to_frame(name='geometry')
         centroid_geo = gpd.GeoDataFrame(centroid_geo, geometry='geometry')
@@ -487,61 +449,52 @@ def generate_centroids(input_layer, weight_field=None, unique_id_field=None):
 
         centroids.append(centroid_geo)
 
-    # 合并所有质心点为一个GeoDataFrame
+    # Merge all centroid points into a GeoDataFrame
     centroids_gdf = pd.concat(centroids, ignore_index=True)
 
     return centroids_gdf
 
 
-# 示例用法
-# input_layer = gpd.read_file('path_to_input_layer.shp')
-# result = generate_centroids(input_layer, weight_field='weight', unique_id_field='id')
-# result.to_file('path_to_result.shp')
-
-
-#最近邻分析
-
-
 @call_graph
 def nearest_neighbor_analysis(point_layer, output_html):
     """
-    对点图层执行最近邻分析，并生成包含统计值的HTML报告。
+    Perform nearest neighbor analysis on point layers and generate an HTML report containing statistical values.
 
-    参数：
-    point_layer (GeoDataFrame): 点图层。
-    output_html (str): 输出HTML文件路径。
+    parameter:
+    point_layer (GeoDataFrame): point layer.
+    output_html (str): Output HTML file path.
 
-    返回：
+    return:
     None
     """
 
-    # 提取点的坐标
+    #Extract the coordinates of the point
     coords = np.array([(point.x, point.y) for point in point_layer.geometry])
 
-    # 创建KDTree以进行快速最近邻搜索
+    # Create KDTree for fast nearest neighbor search
     tree = KDTree(coords)
 
-    # 查找每个点的最近邻距离
+    # Find the nearest neighbor distance of each point
     distances, _ = tree.query(coords, k=2)
     nearest_distances = distances[:, 1]
 
-    # 计算最近邻平均距离
+    # Calculate the average nearest neighbor distance
     mean_nn_distance = np.mean(nearest_distances)
 
-    # 计算点的密度
+    # Calculate the density of points
     area = point_layer.total_bounds
     width = area[2] - area[0]
     height = area[3] - area[1]
     study_area = width * height
     point_density = len(point_layer) / study_area
 
-    # 计算期望的最近邻距离
+    # Calculate the expected nearest neighbor distance
     expected_nn_distance = 1 / (2 * np.sqrt(point_density))
 
-    # 计算R指数
+    # Calculate R index
     r_index = mean_nn_distance / expected_nn_distance
 
-    # 最近邻分析结果
+    #Nearest neighbor analysis results
     if r_index < 1:
         pattern = "Clustered"
     elif r_index > 1:
@@ -549,7 +502,7 @@ def nearest_neighbor_analysis(point_layer, output_html):
     else:
         pattern = "Random"
 
-    # 准备HTML模板
+    # prepare HTML template
     html_template = """
     <html>
     <head>
@@ -567,7 +520,7 @@ def nearest_neighbor_analysis(point_layer, output_html):
     </html>
     """
 
-    # 渲染HTML模板
+    # Render HTML template
     template = Template(html_template)
     html_content = template.render(
         num_points=len(point_layer),
@@ -578,59 +531,44 @@ def nearest_neighbor_analysis(point_layer, output_html):
         pattern=pattern
     )
 
-    # 写入HTML文件
+    # Write HTML file
     with open(output_html, "w") as f:
         f.write(html_content)
-
-
-# 示例用法
-# point_layer = gpd.read_file('path_to_point_layer.shp')
-# nearest_neighbor_analysis(point_layer, 'output_report.html')
 
 
 @call_graph
 def calculate_line_length_in_polygons(line_layer_path, polygon_layer_path, output_layer_path,
                                       length_field_name='line_length', count_field_name='line_count'):
-    # 读取线图层和多边形图层
+    # Read line layer and polygon layer
     lines = gpd.read_file(line_layer_path)
     polygons = gpd.read_file(polygon_layer_path)
 
-    # 检查坐标参考系统是否一致，不一致则转换
+    # Check whether the coordinate reference system is consistent, if not, convert it
     if lines.crs != polygons.crs:
         lines = lines.to_crs(polygons.crs)
 
-    # 创建新的字段并初始化为0
+    # Create new fields and initialize them to 0
     polygons[length_field_name] = 0.0
     polygons[count_field_name] = 0
 
-    # 遍历每个多边形，计算其内线的总长度和数量
+    # Traverse each polygon and calculate the total length and number of internal lines
     for idx, polygon in polygons.iterrows():
-        # 获取与当前多边形相交的所有线
+        # Get all lines that intersect the current polygon
         intersecting_lines = lines[lines.intersects(polygon.geometry)]
 
-        # 计算这些线的总长度
+        # Calculate the total length of these lines
         total_length = intersecting_lines.geometry.length.sum()
 
-        # 计算这些线的数量
+        # Count the number of these lines
         line_count = len(intersecting_lines)
 
-        # 将计算结果赋值给当前多边形
+        # Assign the calculation result to the current polygon
         polygons.at[idx, length_field_name] = total_length
         polygons.at[idx, count_field_name] = line_count
 
-    # 保存结果到新的图层文件
+    # Save the results to a new layer file
     polygons.to_file(output_layer_path)
 
-
-'''
-# 示例调用
-line_layer_path = 'path/to/your/line_layer.shp'
-polygon_layer_path = 'path/to/your/polygon_layer.shp'
-output_layer_path = 'path/to/your/output_layer.shp'
-
-calculate_line_length_in_polygons(line_layer_path, polygon_layer_path, output_layer_path)
-
-'''
 
 @call_graph
 def get_current_latitude_and_longitude():
@@ -685,13 +623,3 @@ def calculate_the_area_of_polygon(gdf):
 
     area = gdf_projected.iloc[0].geometry.area
     return area
-
-
-if __name__ == '__main__':
-    # clip_shp(input_gdf=get_poi(keyword='subway station'), clip_area=create_buffer(gdf=get_path(origin=get_current_latitude_and_longitude(), destination=get_latitude_and_longitude_of_a_location(location='长沙世界之窗')), buffer_size=1000))
-    # a = calculate_the_area_of_polygon(gdf=read_shp_file('', 'files/area.shp'))
-    # print(a)
-    a = clip_shp(input_gdf=get_poi(keyword='subway station'), clip_area=read_shp_file(file_dir='/home/a6000/yhy/gis-agent/files', file_name='area.shp'))
-    print(a[0].head())
-    display_in_map(a[0])
-    print(a[0])
