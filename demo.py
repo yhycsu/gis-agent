@@ -1,3 +1,5 @@
+import os
+
 import gradio as gr
 import shutil
 import time
@@ -7,7 +9,14 @@ from utils import *
 
 # places to store temporary files
 result_dir = 'shapefiles/results'
+poi_dir = 'shapefiles/poi'
 file_dir = 'files'
+if not os.path.exists('shapefiles'):
+    os.mkdir('shapefiles')
+    os.mkdir(result_dir)
+    os.mkdir(poi_dir)
+if not os.path.exists(file_dir):
+    os.mkdir(file_dir)
 # map tiles
 tiles = 'https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7'
 
